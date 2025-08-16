@@ -1678,6 +1678,8 @@ class EnhancedTraditionalHoraryJudgmentEngine:
             else:
                 # Traditional horary: benefic support noted but not decisive
                 reasoning.append(f"Note: {benefic_support['reason']} (secondary testimony)")
+        elif benefic_support["neutral"]:
+            reasoning.append(f"Note: {benefic_support['reason']} (secondary testimony)")
         
         # 6. PREGNANCY-SPECIFIC: Check for Moon→benefic OR L1↔L5 reception (FIXED: don't auto-deny)
         if question_analysis.get("question_type") == "pregnancy":
@@ -2435,67 +2437,119 @@ class EnhancedTraditionalHoraryJudgmentEngine:
     
     def _check_benefic_aspects_to_significators(self, chart: HoraryChart, querent_planet: Planet, quesited_planet: Planet) -> Dict[str, Any]:
         """ENHANCED: Check for beneficial aspects to significators (traditional hierarchy)"""
-        
+
         # Traditional benefics excluding the Sun (handled via R28 luminary rule)
         benefics = [Planet.JUPITER, Planet.VENUS]
         significators = [querent_planet, quesited_planet]
-        
+
+        # Determine which house the quesited planet rules
+        quesited_house_number = None
+        for house_num, ruler in chart.house_rulers.items():
+            if ruler == quesited_planet:
+                quesited_house_number = house_num
+                break
+
         benefic_aspects = []
         total_score = 0
-        
+
         for benefic in benefics:
-            if benefic in significators:
-                continue  # Skip if benefic IS a significator
-                
+            if benefic in significators or benefic not in chart.planets:
+                continue  # Skip if benefic IS a significator or missing
+
             benefic_pos = chart.planets[benefic]
-            
+
             for significator in significators:
-                sig_pos = chart.planets[significator]
-                
+                if significator not in chart.planets:
+                    continue
+
                 # Find aspects between benefic and significator
                 for aspect in chart.aspects:
                     if ((aspect.planet1 == benefic and aspect.planet2 == significator) or
                         (aspect.planet1 == significator and aspect.planet2 == benefic)):
-                        
+
                         # Calculate benefic strength
                         aspect_strength = self._calculate_benefic_aspect_strength(
                             benefic, significator, aspect, chart)
-                        
+
                         if aspect_strength > 0:
+                            description = self._format_aspect_for_display(
+                                benefic.value, aspect.aspect.value,
+                                significator.value, aspect.applying)
                             benefic_aspects.append({
                                 "benefic": benefic.value,
-                                "significator": significator.value, 
+                                "significator": significator.value,
                                 "aspect": aspect.aspect.value,
                                 "applying": aspect.applying,
                                 "degrees": aspect.degrees_to_exact,
                                 "strength": aspect_strength,
-                                "house_position": benefic_pos.house
+                                "house_position": benefic_pos.house,
+                                "description": description,
+                                "type": "aspect",
                             })
                             total_score += aspect_strength
-        
+
+        # Check for benefic planets located in the quesited's house
+        if quesited_house_number:
+            for benefic in benefics:
+                if benefic in significators or benefic not in chart.planets:
+                    continue
+
+                benefic_pos = chart.planets[benefic]
+                if benefic_pos.house == quesited_house_number:
+                    strength = 0
+                    if benefic_pos.house in [1, 4, 7, 10]:
+                        strength += 4
+                    elif benefic_pos.house in [2, 5, 8, 11]:
+                        strength += 2
+                    else:
+                        strength += 1
+
+                    if benefic_pos.dignity_score > 0:
+                        strength += min(3, benefic_pos.dignity_score)
+
+                    if strength > 0:
+                        desc = f"{benefic.value} in {quesited_house_number}th house"
+                        if benefic_pos.house in [1, 4, 7, 10]:
+                            desc += " (angular)"
+                        if benefic_pos.dignity_score > 0:
+                            desc += f" ({benefic_pos.dignity_score:+d} dignity)"
+
+                        benefic_aspects.append({
+                            "benefic": benefic.value,
+                            "significator": None,
+                            "aspect": None,
+                            "applying": None,
+                            "degrees": None,
+                            "strength": strength,
+                            "house_position": benefic_pos.house,
+                            "description": desc,
+                            "type": "house",
+                        })
+                        total_score += strength
+
         if benefic_aspects:
             # Determine result based on total score
             if total_score >= 15:  # Strong benefic support
                 result = "YES"
                 confidence = min(85, 60 + total_score)
-            elif total_score >= 8:   # Moderate benefic support  
+            elif total_score >= 8:   # Moderate benefic support
                 result = "YES"
                 confidence = min(75, 55 + total_score)
             else:                    # Weak but positive
                 result = "UNCLEAR"
                 confidence = 50 + total_score
-                
+
             strongest = max(benefic_aspects, key=lambda x: x["strength"])
-            
+
             return {
                 "favorable": result == "YES",
-                "neutral": result == "UNCLEAR", 
+                "neutral": result == "UNCLEAR",
                 "unfavorable": False,
                 "confidence": confidence,
                 "total_score": total_score,
                 "aspects": benefic_aspects,
                 "strongest_aspect": strongest,
-                "reason": f"{self._format_aspect_for_display(strongest['benefic'], strongest['aspect'], strongest['significator'], strongest['applying'])}"
+                "reason": strongest.get("description", ""),
             }
         else:
             return {
@@ -2505,9 +2559,9 @@ class EnhancedTraditionalHoraryJudgmentEngine:
                 "confidence": 0,
                 "total_score": 0,
                 "aspects": [],
-                "reason": "No benefic aspects to significators"
+                "reason": "No benefic support to significators",
             }
-    
+
     def _calculate_benefic_aspect_strength(self, benefic: Planet, significator: Planet, aspect: AspectInfo, chart: HoraryChart) -> int:
         """Calculate strength of benefic aspect to significator"""
         
