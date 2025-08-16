@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { buildChartPayload } from './utils/buildChartPayload';
 
 import { 
   Calendar, 
@@ -1992,23 +1993,15 @@ const EnhancedChartView = ({ chart, darkMode, notes, setNotes }) => {
 
 
   const handleExportChart = () => {
-    const exportData = {
-      question: chart.question,
-      judgment: chart.judgment,
-      confidence: chart.confidence,
-      reasoning: chart.reasoning,
-      timestamp: chart.timestamp,
-      chart_data: chart.chart_data,
-      solar_factors: chart.solar_factors,
-      traditional_factors: chart.traditional_factors,
-      calculation_metadata: chart.calculation_metadata,
-      notes: noteText
-    };
+    const exportData = buildChartPayload(chart, true);
+    exportData.chart_data = chart.chart_data;
+    exportData.calculation_metadata = chart.calculation_metadata;
+    exportData.notes = noteText;
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {
       type: 'application/json'
     });
-    
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -2017,198 +2010,51 @@ const EnhancedChartView = ({ chart, darkMode, notes, setNotes }) => {
     URL.revokeObjectURL(url);
   };
 
-  // Format chart data for sharing and AI analysis
-  const prepareChartData = (includeVerdict = true) => {
-    const chartDate = new Date(chart.timestamp);
-    const localDateTime = chartDate.toLocaleString();
-    
-    // Extract key testimonies from reasoning (don't include for AI analysis)
-    const keyTestimonies = chart.reasoning
-      ?.filter(r => r.includes('perfection') || r.includes('reception') || r.includes('Moon') || r.includes('dignity') || r.includes('applying'))
-      ?.slice(0, 5) // Top 5 key points
-      ?.map(r => `• ${r}`) || [];
-
-    // Try to get location from various possible places in chart data
-    const getLocationData = () => {
-      // Check chart_data.location first (structured location object)
-      if (chart.chart_data?.location?.city && chart.chart_data?.location?.city !== 'Unknown') {
-        return {
-          city: chart.chart_data.location.city,
-          country: chart.chart_data.location.country || 'Unknown',
-          lat: chart.chart_data.location.latitude || chart.chart_data.location.lat || 0,
-          lon: chart.chart_data.location.longitude || chart.chart_data.location.lon || 0
-        };
-      }
-      
-      // Check if location is in timezone_info as an object
-      if (chart.chart_data?.timezone_info?.location && typeof chart.chart_data.timezone_info.location === 'object') {
-        const loc = chart.chart_data.timezone_info.location;
-        return {
-          city: loc.city || loc.name || 'Unknown',
-          country: loc.country || 'Unknown', 
-          lat: loc.latitude || loc.lat || 0,
-          lon: loc.longitude || loc.lon || 0
-        };
-      }
-
-      // Check timezone_info.location_name (string format)
-      if (chart.chart_data?.timezone_info?.location_name && 
-          chart.chart_data.timezone_info.location_name !== 'Unknown location' &&
-          chart.chart_data.timezone_info.location_name !== 'Unknown') {
-        const locationStr = chart.chart_data.timezone_info.location_name;
-        // Try to parse "City, Country" format
-        const parts = locationStr.split(',').map(s => s.trim());
-        return {
-          city: parts[0] || locationStr,
-          country: parts[1] || 'Unknown',
-          lat: chart.chart_data.timezone_info?.coordinates?.latitude || 0,
-          lon: chart.chart_data.timezone_info?.coordinates?.longitude || 0
-        };
-      }
-
-      // Check top-level location_name field
-      if (chart.location_name && chart.location_name !== 'Unknown location' && chart.location_name !== 'Unknown') {
-        const locationStr = chart.location_name;
-        const parts = locationStr.split(',').map(s => s.trim());
-        return {
-          city: parts[0] || locationStr,
-          country: parts[1] || 'Unknown',
-          lat: chart.chart_data?.timezone_info?.coordinates?.latitude || 0,
-          lon: chart.chart_data?.timezone_info?.coordinates?.longitude || 0
-        };
-      }
-
-      // Check chart-level location (object)
-      if (chart.location && typeof chart.location === 'object') {
-        return {
-          city: chart.location.city || 'Unknown',
-          country: chart.location.country || 'Unknown',
-          lat: chart.location.latitude || chart.location.lat || 0,
-          lon: chart.location.longitude || chart.location.lon || 0
-        };
-      }
-
-      // Check if chart.location is a string (location input from user)
-      if (typeof chart.location === 'string' && chart.location !== 'Unknown') {
-        const parts = chart.location.split(',').map(s => s.trim());
-        return {
-          city: parts[0] || chart.location,
-          country: parts[1] || 'Unknown',
-          lat: 0,
-          lon: 0
-        };
-      }
-
-      // Last resort: try to extract from timezone if it's a recognizable format
-      const tz = chart.chart_data?.timezone_info?.timezone;
-      if (tz && tz !== 'UTC' && tz.includes('/')) {
-        const parts = tz.split('/');
-        const city = parts[parts.length - 1].replace(/_/g, ' ');
-        return {
-          city: city,
-          country: parts[0] || 'Unknown',
-          lat: 0,
-          lon: 0
-        };
-      }
-
-      // Fallback
-      return {
-        city: 'Unknown',
-        country: 'Unknown',
-        lat: 0,
-        lon: 0
-      };
-    };
-
-    const baseData = {
-      id: chart.id,
-      question: chart.question,
-      category: chart.tags?.[0] || 'general',
-      asked_at_local: chartDate.toISOString(),
-      asked_at_utc: chartDate.toISOString(),
-      tz: chart.chart_data?.timezone_info?.timezone || 'UTC',
-      location: getLocationData(),
-      house_system: 'Regiomontanus', // Default system used
-      houses: chart.chart_data?.houses || {},
-      rulers: chart.chart_data?.rulers || {},
-      aspects: chart.chart_data?.aspects || [],
-      planets: chart.chart_data?.planets || {},
-      traditional_factors: chart.traditional_factors || {},
-      solar_factors: chart.solar_factors || {},
-      localDateTime,
-    };
-
-    // Only include verdict and testimonies for sharing, not for AI analysis
-    if (includeVerdict) {
-      baseData.verdict = {
-        label: chart.judgment,
-        confidence: chart.confidence,
-        rationale: chart.reasoning || []
-      };
-      baseData.key_testimonies = keyTestimonies;
-      baseData.keyTestimoniesText = keyTestimonies.join('\n');
-    }
-
-    return baseData;
-  };
 
   const handleShareChart = async () => {
     try {
-      const data = prepareChartData();
-      
+      const data = buildChartPayload(chart, true);
+
       const shareTitle = `Horary: ${data.question}`;
-      const shareText = `${shareTitle}
+      const shareText = `${shareTitle}\n\nAsked: ${data.asked_at_local} · Where: ${data.location.city}, ${data.location.country} · Houses: ${data.house_system}\n\nVerdict: ${data.verdict.label} (${data.verdict.confidence}%)\n\nKey testimonies:\n${data.keyTestimoniesText}`;
 
-Asked: ${data.localDateTime} · Where: ${data.location.city}, ${data.location.country} · Houses: ${data.house_system}
-
-Verdict: ${data.verdict.label} (${data.verdict.confidence}%)
-
-Key testimonies:
-${data.keyTestimoniesText}`;
-
-      // Try native sharing first
       if (navigator.share) {
         try {
           await navigator.share({
             title: shareTitle,
             text: shareText,
-            url: window.location.href // Current page URL
+            url: window.location.href
           });
-          
-          // Show success toast
+
           showToast('Shared!');
           return;
         } catch (err) {
           if (err.name === 'AbortError') {
-            return; // User cancelled
+            return;
           }
-          // Fall through to clipboard fallback
         }
       }
 
-      // Clipboard fallback
       const fullShareText = `${shareText}\n\n--- Chart Data ---\n${JSON.stringify(data, null, 2)}`;
       await navigator.clipboard.writeText(fullShareText);
       showToast('Copied to clipboard — paste to share');
-      
+
     } catch (error) {
       console.error('Share failed:', error);
       showToast(`Couldn't share: ${error.message}`, 'error');
     }
   };
-
   const handleAnalyzeWithAI = async () => {
     try {
-      const data = prepareChartData(false); // Don't include verdict for AI analysis
-      
+      const data = buildChartPayload(chart, false); // Don't include verdict for AI analysis
+
       const prompt = `Role: You are a traditional horary astrologer using Lilly as baseline (Sahl/Bonatti comparisons welcome). Work strictly from the chart data provided; do not recast unless you detect a blatant inconsistency, in which case note it as a warning.
 
 Task: Judge the question using traditional horary rules and produce a clear, auditable verdict.
 
 Question: "${data.question}"
 
-Asked: ${data.localDateTime}
+Asked: ${data.asked_at_local}
 Location: ${data.location.city}, ${data.location.country}
 Coordinates: ${data.location.lat}°, ${data.location.lon}°
 Timezone: ${data.tz}
