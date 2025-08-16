@@ -74,7 +74,10 @@ moon:
     cancer: true     # Moon in Cancer not void even without aspects
     sagittarius: true # Moon in Sagittarius not void (traditional joy)
     taurus: false    # Moon in Taurus (exaltation) - configurable
-  
+
+  # Allow Moon applications that perfect after a sign change
+  allow_out_of_sign_applications: true
+
   # Translation and collection requirements
   translation:
     require_speed_advantage: true  # Translator must be faster than significators
