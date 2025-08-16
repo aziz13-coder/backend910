@@ -1300,6 +1300,27 @@ class EnhancedTraditionalHoraryJudgmentEngine:
         perfection = self._check_enhanced_perfection(
             chart, primary_significator, secondary_significator, exaltation_confidence_boost
         )
+
+        # Post-event mode: count recent separating aspects as positive testimony
+        if (
+            not perfection.get("perfects")
+            and question_analysis.get("post_event")
+        ):
+            sep = self._find_separating_aspect(
+                chart, primary_significator, secondary_significator
+            )
+            if sep and sep.get("orb") is not None:
+                orb_limit = max(sep["aspect"].orb, 8.0)
+                if sep["orb"] <= orb_limit:
+                    perfection = {
+                        "perfects": True,
+                        "type": "separating",
+                        "favorable": True,
+                        "confidence": cfg().confidence.perfection.direct_basic,
+                        "reason": f"Recent separation: {self._format_aspect_for_display(primary_significator.value, sep['aspect'], secondary_significator.value, False)}",
+                        "aspect": sep,
+                    }
+
         # If a direct aspect exists, handle prohibition or immediate denial before considering Moon aspects
         if "aspect" in perfection:
             prohibition_result = self._check_traditional_prohibition(
@@ -1339,6 +1360,13 @@ class EnhancedTraditionalHoraryJudgmentEngine:
         )
         if perfection.get("perfects"):
             moon_next_aspect_result["decisive"] = False
+
+        sun_to_10th = self._check_sun_applying_to_10th_ruler(chart)
+        if sun_to_10th:
+            reasoning.append("Sun applying to 10th ruler - result/recognition revealed soon")
+            confidence = min(100, confidence + 2)
+            if sun_to_10th.get("combust"):
+                reasoning.append("Combustion on 10th ruler mitigated")
 
         if perfection["perfects"]:
             result = "YES" if perfection["favorable"] else "NO"
@@ -3475,6 +3503,38 @@ class EnhancedTraditionalHoraryJudgmentEngine:
             "reception": reception,
             "void_moon": void_of_course
         }
+
+    def _check_sun_applying_to_10th_ruler(self, chart: HoraryChart) -> Optional[Dict[str, Any]]:
+        """Detect if the Sun applies to the 10th house ruler within 3°"""
+
+        tenth_ruler = chart.house_rulers.get(10)
+        if not tenth_ruler:
+            return None
+
+        sun_pos = chart.planets[Planet.SUN]
+        ruler_pos = chart.planets[tenth_ruler]
+
+        separation = abs(sun_pos.longitude - ruler_pos.longitude)
+        if separation > 180:
+            separation = 360 - separation
+        if separation > 3:
+            return None
+
+        # Determine if Sun is applying (separation decreasing)
+        time_increment = 0.1
+        future_sun = (sun_pos.longitude + sun_pos.speed * time_increment) % 360
+        future_ruler = (ruler_pos.longitude + ruler_pos.speed * time_increment) % 360
+        future_sep = abs(future_sun - future_ruler)
+        if future_sep > 180:
+            future_sep = 360 - future_sep
+        if future_sep >= separation:
+            return None
+
+        combust = False
+        if hasattr(ruler_pos, "solar_condition") and ruler_pos.solar_condition.condition == "Combustion":
+            combust = True
+
+        return {"ruler": tenth_ruler, "combust": combust}
     
     def _format_reception_for_display(self, reception_type: str, planet1: Planet, planet2: Planet, chart: HoraryChart) -> str:
         """Format reception analysis for user-friendly display using centralized calculator"""

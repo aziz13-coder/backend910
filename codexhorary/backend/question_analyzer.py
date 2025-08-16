@@ -149,9 +149,14 @@ class TraditionalHoraryQuestionAnalyzer:
     
     def analyze_question(self, question: str) -> Dict[str, Any]:
         """Analyze question to determine significators using traditional methods"""
-        
+
         question_lower = question.lower()
-        
+
+        # Detect post-event phrasing (e.g., "just took", "already did")
+        post_event = bool(
+            re.search(r"(just|already)\s+(took|did|submitted|happened)", question_lower)
+        )
+
         # ENHANCEMENT: Detect 3rd person questions requiring house turning
         third_person_analysis = self._detect_third_person_question(question_lower)
         
@@ -181,7 +186,8 @@ class TraditionalHoraryQuestionAnalyzer:
             "significators": significators,
             "third_person_analysis": third_person_analysis,
             "timeframe_analysis": timeframe_analysis,
-            "traditional_analysis": True
+            "traditional_analysis": True,
+            "post_event": post_event,
         }
     
     def _apply_house_derivation(self, base_house: int, derived_house: int) -> int:

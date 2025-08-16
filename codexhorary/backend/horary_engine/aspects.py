@@ -73,9 +73,12 @@ def calculate_moon_next_aspect(
     get_moon_speed: Callable[[float], float],
 ) -> Optional[LunarAspect]:
     """Calculate Moon's next applying aspect"""
+    config = cfg()
+    allow_cross_sign = getattr(config.moon, "allow_out_of_sign_applications", True)
 
     moon_pos = planets[Planet.MOON]
     moon_speed = get_moon_speed(jd_ut)
+    moon_days_to_exit = days_to_sign_exit(moon_pos.longitude, moon_speed)
 
     # Find closest applying aspect
     applying_aspects: List[LunarAspect] = []
@@ -95,7 +98,6 @@ def calculate_moon_next_aspect(
             max_orb = aspect_type.orb
 
             if orb_diff <= max_orb:
-                # Check if applying
                 if is_moon_applying_to_aspect(
                     moon_pos, planet_pos, aspect_type, moon_speed
                 ):
@@ -106,6 +108,14 @@ def calculate_moon_next_aspect(
                         if relative_speed != 0
                         else float("inf")
                     )
+
+                    # Skip aspects that perfect after Moon leaves sign when not allowed
+                    if (
+                        not allow_cross_sign
+                        and moon_days_to_exit is not None
+                        and time_to_exact > moon_days_to_exit
+                    ):
+                        continue
 
                     applying_aspects.append(
                         LunarAspect(
